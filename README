@@ -1,0 +1,9 @@
+container-machine-nixos
+=======================
+
+Run the published NixOS image with Apple `container machine`:
+
+```sh
+container machine create ghcr.io/aca/container-machine-nixos:26.05 --name nixos
+container machine run -n nixos
+```

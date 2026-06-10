@@ -1,0 +1,95 @@
+name: Publish GHCR image
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Additional GHCR tag to publish"
+        required: false
+        default: "26.05"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04-arm
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags
+        id: meta
+        env:
+          DISPATCH_TAG: ${{ github.event.inputs.tag || '' }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY}"
+          image="${image,,}"
+          short_sha="${GITHUB_SHA::12}"
+          tags_file="$RUNNER_TEMP/image-tags.txt"
+
+          {
+            echo "$image:sha-$short_sha"
+
+            if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+              echo "$image:$GITHUB_REF_NAME"
+            elif [[ "$GITHUB_REF_NAME" == "main" ]]; then
+              echo "$image:latest"
+              echo "$image:26.05"
+            fi
+
+            if [[ -n "$DISPATCH_TAG" ]]; then
+              echo "$image:$DISPATCH_TAG"
+            fi
+          } | awk '!seen[$0]++' > "$tags_file"
+
+          {
+            echo "primary=$(head -n1 "$tags_file")"
+            echo "tags<<EOF"
+            cat "$tags_file"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and load Docker image
+        env:
+          DOCKER_IMAGE_REF: ${{ steps.meta.outputs.primary }}
+        run: |
+          ./build-nixos-machine-on-arm.sh "$DOCKER_IMAGE_REF"
+
+      - name: Push image tags
+        env:
+          PRIMARY_TAG: ${{ steps.meta.outputs.primary }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          while IFS= read -r tag; do
+            [[ -n "$tag" ]] || continue
+            if [[ "$tag" != "$PRIMARY_TAG" ]]; then
+              docker tag "$PRIMARY_TAG" "$tag"
+            fi
+            docker push "$tag"
+          done <<< "$TAGS"
