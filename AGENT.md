@@ -7,7 +7,9 @@ This repository builds a NixOS-based image for Apple `container machine`.
 - Main flake: `flake.nix`
 - User docs: `README-nixos-machine.md`
 - Bench docs: `BENCHMARK.md`
-- Local OrbStack helper: `build-nixos-machine.sh`
+- macOS OrbStack image loader: `build-nixos-machine-on-mac.sh`
+- local Apple container-machine verifier: `verify-nixos-machine-local.sh`
+- Legacy local OrbStack create helper: `build-nixos-machine.sh`
 - x86_64 Linux builder helper: `build-nixos-machine-on-x86.sh`
 - arm64 Linux builder/GHCR helper: `build-nixos-machine-on-arm.sh`
 - GHCR workflow: `.github/workflows/publish-ghcr.yml`
@@ -35,7 +37,8 @@ Important runtime details:
   Apple's `container machine` wrapper.
 - `/etc/machine/shell` repairs `PATH` for `container machine run` commands.
 - `/etc/machine/create-user.sh` wraps Apple's user creation script with a NixOS
-  PATH.
+  PATH. It must use an executable `source`, not `environment.etc.text`, because
+  Apple runs it before NixOS activation applies `/etc` mode metadata.
 - `/sbin/init` prefers `/nix/var/nix/profiles/system` when present, so
   `nixos-rebuild switch` generations survive machine stop/start. It falls back
   to the baked image toplevel on first boot.
@@ -45,7 +48,9 @@ Important runtime details:
 From macOS with the OrbStack helper:
 
 ```sh
-./build-nixos-machine.sh
+./build-nixos-machine-on-mac.sh
+./build-nixos-machine-on-mac.sh --create nixos
+./verify-nixos-machine-local.sh
 ```
 
 On an x86_64 Linux Nix builder:
@@ -147,7 +152,7 @@ If SSH accepts the key and then closes the connection, the macOS user may need
 to be added to the SSH ACL:
 
 ```sh
-sudo dseditgroup -o edit -a kyungrok.chung -t user com.apple.access_ssh
+sudo dseditgroup -o edit -a "$(id -un)" -t user com.apple.access_ssh
 ```
 
 ## Validation Notes

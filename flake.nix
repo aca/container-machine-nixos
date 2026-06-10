@@ -53,6 +53,21 @@
 
         exec "''${ssh_cmd[@]}" "''${ssh_args[@]}" "$user@$host" "$remote_cmd"
       '';
+      containerMachineShell = pkgs.writeShellScript "container-machine-shell" ''
+        # This is the login shell recorded in `/etc/passwd`.
+        # It repairs PATH for non-interactive `container machine run` commands,
+        # then delegates to normal interactive Bash.
+        export PATH=/run/wrappers/bin:/run/current-system/sw/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+        exec ${pkgs.bashInteractive}/bin/bash "$@"
+      '';
+      containerMachineCreateUser = pkgs.writeShellScript "container-machine-create-user" ''
+        # Apple prefers `/etc/machine/create-user.sh` over its built in
+        # `/sbin.machine/create-user.sh`. Keep Apple's user setup behavior, but
+        # run it after adding the NixOS system PATH so commands like `getent`,
+        # `mkdir`, `cp`, and `chmod` resolve.
+        export PATH=/run/wrappers/bin:/run/current-system/sw/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+        exec /sbin.machine/create-user.sh "$@"
+      '';
 
       nixos = lib.nixosSystem {
         inherit system;
@@ -162,27 +177,15 @@
             environment.etc = {
               "machine/shell" = {
                 mode = "0755";
-                text = ''
-                  #!${pkgs.runtimeShell}
-                  # This is the login shell recorded in `/etc/passwd`.
-                  # It repairs PATH for non-interactive `container machine run`
-                  # commands, then delegates to normal interactive Bash.
-                  export PATH=/run/wrappers/bin:/run/current-system/sw/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-                  exec ${pkgs.bashInteractive}/bin/bash "$@"
-                '';
+                source = containerMachineShell;
               };
 
+              # Apple executes this before NixOS activation can apply
+              # environment.etc mode metadata, so the source path itself must
+              # be executable.
               "machine/create-user.sh" = {
                 mode = "0755";
-                text = ''
-                  #!${pkgs.runtimeShell}
-                  # Apple prefers `/etc/machine/create-user.sh` over its built
-                  # in `/sbin.machine/create-user.sh`. Keep Apple's user setup
-                  # behavior, but run it after adding the NixOS system PATH so
-                  # commands like `getent`, `mkdir`, `cp`, and `chmod` resolve.
-                  export PATH=/run/wrappers/bin:/run/current-system/sw/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-                  exec /sbin.machine/create-user.sh "$@"
-                '';
+                source = containerMachineCreateUser;
               };
             };
 

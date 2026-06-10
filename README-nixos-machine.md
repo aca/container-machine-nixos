@@ -10,16 +10,35 @@ Nix, converts it to an OCI archive with `skopeo`, and loads it into Apple
 
 ## Build and create
 
-### Build with the local OrbStack helper
+### Build with the local macOS OrbStack helper
 
-Build the image in the OrbStack NixOS machine named `tsvm`, load it into Apple
-`container`, and create a container machine named `nixos`:
+Build the image in the default OrbStack NixOS environment and load it into Apple
+`container image` as `local/nixos-machine:latest`:
 
 ```sh
-./build-nixos-machine.sh
+./build-nixos-machine-on-mac.sh
+container image list
 ```
 
-Use a different machine name:
+Build, load, and create a container machine named `nixos`:
+
+```sh
+./build-nixos-machine-on-mac.sh --create nixos
+```
+
+Verify the locally loaded image with a disposable `nixos-local-test` machine:
+
+```sh
+./verify-nixos-machine-local.sh
+```
+
+Use a different image tag when needed:
+
+```sh
+IMAGE_REF=local/nixos-machine:dev ./build-nixos-machine-on-mac.sh
+```
+
+The older shortcut still builds, loads, and creates the machine:
 
 ```sh
 ./build-nixos-machine.sh nixos-dev
@@ -174,6 +193,13 @@ container machine run -n nixos
 container machine run -n nixos --root
 ```
 
+If `container machine run` fails with `Operation not supported by device` while
+you are in a macOS project directory, run from `/` inside the guest:
+
+```sh
+container machine run -n nixos -w / 'id; pwd'
+```
+
 ## Rebuild inside the machine
 
 The machine keeps its NixOS configuration at `/etc/nixos/flake.nix`. Enter as
@@ -216,14 +242,14 @@ Override the host or user when needed:
 
 ```sh
 container machine run -n nixos -- \
-  'MAC_USER=kyungrok.chung MAC_HOST=192.168.64.1 mac uname -s'
+  'MAC_USER=your-macos-user MAC_HOST=192.168.64.1 mac uname -s'
 ```
 
 For non-interactive password auth, pass `MAC_PASSWORD`:
 
 ```sh
 container machine run -n nixos -- \
-  'MAC_USER=kyungrok.chung MAC_PASSWORD=... mac uname -s'
+  'MAC_USER=your-macos-user MAC_PASSWORD=... mac uname -s'
 ```
 
 Important: on this machine, port `22` is currently owned by `OrbStack Helper`,
@@ -247,7 +273,7 @@ Allow the macOS user through the SSH access ACL if the server accepts the key
 and then closes the connection:
 
 ```sh
-sudo dseditgroup -o edit -a kyungrok.chung -t user com.apple.access_ssh
+sudo dseditgroup -o edit -a "$(id -un)" -t user com.apple.access_ssh
 ```
 
 Make sure the guest private key is not group/world-readable:
@@ -279,9 +305,9 @@ local/nixos-machine:latest
 
 ## Notes
 
-- `build-nixos-machine.sh` assumes OrbStack has a Linux machine named `tsvm`
-  with `nix`; `build-nixos-machine-on-x86.sh` and
-  `build-nixos-machine-on-arm.sh` do not use OrbStack.
+- `build-nixos-machine-on-mac.sh` assumes `orb` enters a Linux environment with
+  `nix`; `build-nixos-machine-on-x86.sh` and `build-nixos-machine-on-arm.sh` do
+  not use OrbStack.
 - `skopeo` is fetched transiently with `nix shell nixpkgs#skopeo`; it does not
   need to be installed globally.
 - The image enables `sudo` without a password for local container-machine
@@ -292,5 +318,7 @@ local/nixos-machine:latest
 - NixOS packages live under `/run/current-system/sw/bin`. The image only keeps
   minimal `/usr/bin` and `/bin` compatibility entries needed by Apple's
   `container machine` wrapper, such as `/bin/sh` and `/usr/bin/{id,cut,grep}`.
+- `/etc/machine/create-user.sh` must point at an executable store path because
+  Apple runs it before NixOS activation applies `/etc` mode metadata.
 - The image includes systemd, dbus, OpenSSH, Nix, curl, wget, vim, iproute2,
   iputils, net-tools, procps, and common core utilities.
